@@ -47,3 +47,15 @@ assert result.schema["properties"]["name"] == {"type": "string"}
 
 See [the API guide](docs/api.md) for the complete result model and schema
 mapping, and [the examples](docs/examples.md) for more usage patterns.
+
+## Releasing
+
+Releases are published to PyPI through GitHub Actions using trusted publishing.
+The repository's `pypi` environment supplies the OIDC authorization; no PyPI
+token is stored in the repository. To publish a release:
+
+1. Confirm the version in `pyproject.toml`.
+2. Create and publish a GitHub release whose tag is exactly `v<version>` (for
+   example, `v0.1.0`).
+3. The release workflow checks the tag against the package metadata, builds and
+   validates the source distribution and wheel, and publishes both to PyPI.
