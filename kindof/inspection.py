@@ -9,6 +9,8 @@ import typing
 from dataclasses import dataclass, field
 from typing import Any
 
+_UNION_TYPE = getattr(types, "UnionType", None)
+
 
 def _type_name(value: Any) -> str:
     if value is Any:
@@ -16,7 +18,9 @@ def _type_name(value: Any) -> str:
     if isinstance(value, str):
         return value
     origin = typing.get_origin(value)
-    if origin is typing.Union or origin is types.UnionType:
+    if origin is typing.Union or (
+        _UNION_TYPE is not None and origin is _UNION_TYPE
+    ):
         return " | ".join(_type_name(item) for item in typing.get_args(value))
     if origin is not None:
         name = getattr(origin, "__name__", str(origin))
@@ -118,7 +122,9 @@ def _schema_for(annotation: Any) -> dict[str, Any]:
     args = typing.get_args(annotation)
     if annotation is Any:
         return {}
-    if origin in (typing.Union, types.UnionType):
+    if origin is typing.Union or (
+        _UNION_TYPE is not None and origin is _UNION_TYPE
+    ):
         non_none = [item for item in args if item is not type(None)]
         if len(non_none) != len(args):
             return _schema_for(non_none[0]) if len(non_none) == 1 else {
@@ -139,7 +145,13 @@ def inspect(obj: Any) -> InspectionResult:
     """Inspect an object or class and return stable metadata."""
     cls = obj if _inspect.isclass(obj) else type(obj)
     annotations = _safe_annotations(cls)
-    values = {} if _inspect.isclass(obj) else vars(obj) if hasattr(obj, "__dict__") else {}
+    values = (
+        {}
+        if _inspect.isclass(obj)
+        else vars(obj)
+        if hasattr(obj, "__dict__")
+        else {}
+    )
     fields: dict[str, FieldInfo] = {}
 
     for name, annotation in annotations.items():
@@ -147,7 +159,12 @@ def inspect(obj: Any) -> InspectionResult:
         if callable(class_member):
             continue
         member = getattr(obj, name, class_member)
-        has_default = name in values or class_member is not None
+        has_class_default = (
+            name in cls.__dict__
+            and not isinstance(class_member, types.MemberDescriptorType)
+            and not isinstance(class_member, property)
+        )
+        has_default = name in values or has_class_default
         fields[name] = FieldInfo(
             name=name,
             type=_type_name(annotation),
@@ -165,7 +182,11 @@ def inspect(obj: Any) -> InspectionResult:
         if name.startswith("_") or name in fields:
             continue
         if isinstance(member, property):
-            fields[name] = FieldInfo(name, _type_name(annotations.get(name, Any)), kind="property")
+            fields[name] = FieldInfo(
+                name,
+                _type_name(annotations.get(name, Any)),
+                kind="property",
+            )
 
     methods: dict[str, MethodInfo] = {}
     signatures: dict[str, str] = {}
@@ -188,7 +209,9 @@ def inspect(obj: Any) -> InspectionResult:
         signatures[name] = signature
 
     schema_properties = {
-        name: _schema_for(annotations.get(name, type(values[name]) if name in values else Any))
+        name: _schema_for(
+            annotations.get(name, type(values[name]) if name in values else Any)
+        )
         for name in fields
     }
     schema: dict[str, Any] = {
